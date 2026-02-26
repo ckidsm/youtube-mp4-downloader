@@ -3,9 +3,61 @@
 """
 
 import os
+import sys
+import shutil
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 import yt_dlp
+
+
+def _remove_quarantine_macos(file_path):
+    """macOS에서 파일의 quarantine 속성 제거"""
+    import subprocess
+    import platform
+
+    if platform.system() == 'Darwin' and os.path.exists(file_path):
+        try:
+            subprocess.run(['xattr', '-d', 'com.apple.quarantine', file_path],
+                         stderr=subprocess.DEVNULL, timeout=2)
+            subprocess.run(['xattr', '-d', 'com.apple.provenance', file_path],
+                         stderr=subprocess.DEVNULL, timeout=2)
+        except Exception:
+            pass
+
+
+def _find_ffmpeg_path():
+    """FFmpeg 경로 찾기 (시스템 또는 로컬 bin 디렉토리)"""
+    # 1. 로컬 bin 디렉토리 확인 (PyInstaller 앱 번들 내부)
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 빌드된 경우
+        base_dir = os.path.dirname(sys.executable)
+        local_ffmpeg = os.path.join(base_dir, 'bin', 'ffmpeg')
+        if os.path.exists(local_ffmpeg) and os.access(local_ffmpeg, os.X_OK):
+            # macOS에서 quarantine 속성 제거 시도
+            _remove_quarantine_macos(local_ffmpeg)
+
+            # AtomicParsley도 같은 디렉토리에 있을 수 있으므로 처리
+            atomicparsley_path = os.path.join(base_dir, 'bin', 'AtomicParsley')
+            if os.path.exists(atomicparsley_path):
+                _remove_quarantine_macos(atomicparsley_path)
+
+            return local_ffmpeg
+
+    # 2. 시스템 PATH에서 확인
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        return ffmpeg_path
+
+    # 3. macOS Homebrew 기본 경로 확인
+    homebrew_paths = [
+        '/opt/homebrew/bin/ffmpeg',  # Apple Silicon
+        '/usr/local/bin/ffmpeg'       # Intel Mac
+    ]
+    for path in homebrew_paths:
+        if os.path.exists(path):
+            return path
+
+    return None
 
 
 class YoutubeDownloadWorker(QThread):
@@ -43,6 +95,12 @@ class YoutubeDownloadWorker(QThread):
             # 파일명에서 확장자 제거 (yt-dlp가 자동으로 추가)
             base_path = os.path.splitext(self.output_path)[0]
 
+            # FFmpeg 경로 찾기
+            ffmpeg_location = _find_ffmpeg_path()
+            if not ffmpeg_location:
+                self.finished.emit(False, "FFmpeg를 찾을 수 없습니다. FFmpeg를 설치해주세요.")
+                return
+
             # 다운로드 타입에 따른 옵션 설정
             if self.download_type == 'audio':
                 ydl_opts = {
@@ -51,6 +109,7 @@ class YoutubeDownloadWorker(QThread):
                     'outtmpl': base_path + '.%(ext)s',
                     'noplaylist': True,  # 플레이리스트 무시, 단일 비디오만
                     'writethumbnail': True,  # 썸네일 다운로드
+                    'ffmpeg_location': ffmpeg_location,  # FFmpeg 경로 명시
                     'postprocessors': [
                         {
                             'key': 'FFmpegExtractAudio',
@@ -78,6 +137,7 @@ class YoutubeDownloadWorker(QThread):
                     'outtmpl': base_path + '.%(ext)s',
                     'noplaylist': True,  # 플레이리스트 무시
                     'writethumbnail': True,  # 썸네일 다운로드
+                    'ffmpeg_location': ffmpeg_location,  # FFmpeg 경로 명시
                     'merge_output_format': 'mp4',
                     'postprocessors': [
                         {
@@ -100,6 +160,7 @@ class YoutubeDownloadWorker(QThread):
                     'outtmpl': base_path + '.%(ext)s',
                     'noplaylist': True,  # 플레이리스트 무시
                     'writethumbnail': True,  # 썸네일 다운로드
+                    'ffmpeg_location': ffmpeg_location,  # FFmpeg 경로 명시
                     'merge_output_format': 'mp4',
                     'postprocessors': [
                         {
@@ -122,6 +183,7 @@ class YoutubeDownloadWorker(QThread):
                     'outtmpl': base_path + '.%(ext)s',
                     'noplaylist': True,  # 플레이리스트 무시
                     'writethumbnail': True,  # 썸네일 다운로드
+                    'ffmpeg_location': ffmpeg_location,  # FFmpeg 경로 명시
                     'merge_output_format': 'mp4',
                     'postprocessors': [
                         {
@@ -141,6 +203,7 @@ class YoutubeDownloadWorker(QThread):
                 ydl_opts = {
                     'format': 'best[ext=mp4]/best',
                     'outtmpl': base_path + '.%(ext)s',
+                    'ffmpeg_location': ffmpeg_location,  # FFmpeg 경로 명시
                     'quiet': True,
                     'no_warnings': True,
                     'progress_hooks': [self._progress_hook],

@@ -86,6 +86,15 @@ class DependencyChecker:
             ffmpeg_path = os.path.join(self.bin_dir, 'ffmpeg')
             os.chmod(ffmpeg_path, 0o755)
 
+            # macOS Gatekeeper quarantine 속성 제거
+            try:
+                subprocess.run(['xattr', '-d', 'com.apple.quarantine', ffmpeg_path],
+                             stderr=subprocess.DEVNULL)
+                subprocess.run(['xattr', '-d', 'com.apple.provenance', ffmpeg_path],
+                             stderr=subprocess.DEVNULL)
+            except Exception:
+                pass  # 속성이 없으면 무시
+
             # zip 파일 삭제
             os.remove(zip_path)
 
@@ -124,6 +133,15 @@ class DependencyChecker:
             atomicparsley_path = os.path.join(self.bin_dir, 'AtomicParsley')
             if os.path.exists(atomicparsley_path):
                 os.chmod(atomicparsley_path, 0o755)
+
+                # macOS Gatekeeper quarantine 속성 제거
+                try:
+                    subprocess.run(['xattr', '-d', 'com.apple.quarantine', atomicparsley_path],
+                                 stderr=subprocess.DEVNULL)
+                    subprocess.run(['xattr', '-d', 'com.apple.provenance', atomicparsley_path],
+                                 stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass  # 속성이 없으면 무시
 
             # zip 파일 삭제
             os.remove(zip_path)
@@ -256,18 +274,41 @@ class DependencyChecker:
             print(f"AtomicParsley 설치 실패: {e}")
             return False
 
+    def _remove_quarantine_macos(self, binary_path):
+        """macOS에서 quarantine 속성 제거"""
+        if self.system == 'Darwin' and os.path.exists(binary_path):
+            try:
+                subprocess.run(['xattr', '-d', 'com.apple.quarantine', binary_path],
+                             stderr=subprocess.DEVNULL)
+                subprocess.run(['xattr', '-d', 'com.apple.provenance', binary_path],
+                             stderr=subprocess.DEVNULL)
+            except Exception:
+                pass  # 속성이 없으면 무시
+
     def check_and_install(self):
         """FFmpeg와 AtomicParsley 확인 및 설치"""
         print("\n의존성 확인 중...")
 
+        # 빠른 경로: 시스템에 이미 설치되어 있으면 즉시 반환
+        ffmpeg_system = self._check_command('ffmpeg')
+        atomicparsley_system = self._check_command('AtomicParsley')
+
+        if ffmpeg_system and atomicparsley_system:
+            print("✓ FFmpeg (시스템): 설치됨")
+            print("✓ AtomicParsley (시스템): 설치됨")
+            print("\n의존성 확인 완료!\n")
+            return True
+
         # FFmpeg 확인
         ffmpeg_ok = False
-        if self._check_local_binary('ffmpeg'):
-            print("✓ FFmpeg (로컬): 설치됨")
-            ffmpeg_ok = True
-        elif self._check_command('ffmpeg'):
+        if ffmpeg_system:
             print("✓ FFmpeg (시스템): 설치됨")
             ffmpeg_ok = True
+        elif self._check_local_binary('ffmpeg'):
+            print("✓ FFmpeg (로컬): 설치됨")
+            ffmpeg_ok = True
+            # 로컬 바이너리의 quarantine 속성 제거
+            self._remove_quarantine_macos(os.path.join(self.bin_dir, 'ffmpeg'))
         else:
             print("✗ FFmpeg: 설치되지 않음")
             print("FFmpeg 자동 설치를 시작합니다...")
@@ -281,12 +322,14 @@ class DependencyChecker:
 
         # AtomicParsley 확인
         atomicparsley_ok = False
-        if self._check_local_binary('AtomicParsley'):
-            print("✓ AtomicParsley (로컬): 설치됨")
-            atomicparsley_ok = True
-        elif self._check_command('AtomicParsley'):
+        if atomicparsley_system:
             print("✓ AtomicParsley (시스템): 설치됨")
             atomicparsley_ok = True
+        elif self._check_local_binary('AtomicParsley'):
+            print("✓ AtomicParsley (로컬): 설치됨")
+            atomicparsley_ok = True
+            # 로컬 바이너리의 quarantine 속성 제거
+            self._remove_quarantine_macos(os.path.join(self.bin_dir, 'AtomicParsley'))
         else:
             print("✗ AtomicParsley: 설치되지 않음")
             print("AtomicParsley 자동 설치를 시작합니다...")
