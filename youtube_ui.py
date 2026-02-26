@@ -7,21 +7,135 @@ import re
 import sys
 import subprocess
 import json
+import time
+import logging
+from datetime import datetime
 from typing import Dict, Optional
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel,
     QPushButton, QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-    QMessageBox, QComboBox, QGroupBox, QAbstractItemView, QMenu
+    QMessageBox, QComboBox, QGroupBox, QAbstractItemView, QMenu, QSplashScreen,
+    QProgressBar, QCheckBox
 )
-from PyQt6.QtGui import QAction
-import yt_dlp
+from PyQt6.QtGui import QAction, QPixmap, QPainter, QColor, QFont
 
-from youtube_worker import YoutubeDownloadWorker
-from dependency_checker import DependencyChecker
+# Lazy imports - 필요할 때만 import (시작 속도 개선)
+yt_dlp = None
+YoutubeDownloadWorker = None
+DependencyChecker = None
+
+def lazy_import_modules():
+    """필요한 모듈을 lazy import"""
+    global yt_dlp, YoutubeDownloadWorker, DependencyChecker
+
+    if yt_dlp is None:
+        log_timing("Importing yt_dlp module")
+        import yt_dlp as _yt_dlp
+        yt_dlp = _yt_dlp
+        log_timing("yt_dlp module imported")
+
+    if YoutubeDownloadWorker is None:
+        log_timing("Importing YoutubeDownloadWorker")
+        from youtube_worker import YoutubeDownloadWorker as _Worker
+        YoutubeDownloadWorker = _Worker
+        log_timing("YoutubeDownloadWorker imported")
+
+    if DependencyChecker is None:
+        log_timing("Importing DependencyChecker")
+        from dependency_checker import DependencyChecker as _Checker
+        DependencyChecker = _Checker
+        log_timing("DependencyChecker imported")
 
 # 설정 파일 경로
 SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+
+# 로그 설정
+def setup_logging():
+    """로그 시스템 설정"""
+    # 로그 디렉토리 생성
+    if getattr(sys, 'frozen', False):
+        # PyInstaller로 빌드된 경우
+        log_dir = os.path.expanduser('~/Library/Logs/YoutubeDownloader')
+    else:
+        # 개발 모드
+        log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+
+    os.makedirs(log_dir, exist_ok=True)
+
+    # 로그 파일 경로
+    log_file = os.path.join(log_dir, f'app_{datetime.now().strftime("%Y%m%d")}.log')
+
+    # 로그 포맷
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s',
+        datefmt='%H:%M:%S',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+    return logging.getLogger(__name__)
+
+# 전역 시작 시간
+APP_START_TIME = time.time()
+
+def log_timing(message):
+    """시작 시간으로부터 경과 시간과 함께 로그 출력"""
+    elapsed = (time.time() - APP_START_TIME) * 1000  # 밀리초
+    log_msg = f"[+{elapsed:7.1f}ms] {message}"
+
+    # 로그가 설정되어 있으면 로그에 기록
+    if logging.getLogger().hasHandlers():
+        logging.info(log_msg)
+    else:
+        # 로그가 설정되지 않았으면 print로 출력
+        print(log_msg, flush=True)
+
+
+class InitWorker(QThread):
+    """백그라운드에서 초기화 작업을 수행하는 워커"""
+
+    progress = pyqtSignal(str)  # 진행 상태 메시지
+    finished = pyqtSignal(bool)  # 초기화 완료 (성공 여부)
+
+    def run(self):
+        """초기화 실행"""
+        try:
+            # Lazy import
+            lazy_import_modules()
+
+            log_timing("InitWorker: Starting dependency check")
+            self.progress.emit("의존성 확인 중...")
+
+            # 의존성 확인 (출력 억제)
+            import io
+            import contextlib
+
+            # 표준 출력을 캡처하여 스플래시 스크린에 표시
+            f = io.StringIO()
+            with contextlib.redirect_stdout(f):
+                checker = DependencyChecker()
+                success = checker.check_and_install()
+
+            log_timing(f"InitWorker: Dependency check completed (success={success})")
+
+            # 출력 내용을 줄 단위로 읽어 진행 상태 전송
+            output = f.getvalue()
+            for line in output.split('\n'):
+                if line.strip():
+                    self.progress.emit(line.strip())
+
+            self.progress.emit("초기화 완료!")
+            log_timing("InitWorker: Emitting finished signal")
+            self.finished.emit(success)
+
+        except Exception as e:
+            log_timing(f"InitWorker: Error - {str(e)}")
+            self.progress.emit(f"초기화 오류: {str(e)}")
+            self.finished.emit(False)
 
 
 class YoutubeDownloaderApp(QWidget):
@@ -42,7 +156,13 @@ class YoutubeDownloaderApp(QWidget):
         url_layout.addWidget(QLabel("유튜브 URL:"))
         self.url_edit = QLineEdit()
         self.url_edit.setPlaceholderText("https://www.youtube.com/watch?v=...")
+        self.url_edit.returnPressed.connect(self.add_to_queue)  # 엔터키로 바로 큐에 추가
         url_layout.addWidget(self.url_edit, 1)
+
+        # 자동 다운로드 체크박스
+        self.auto_download_checkbox = QCheckBox("자동 다운로드")
+        self.auto_download_checkbox.setChecked(True)  # 기본값: 체크됨
+        url_layout.addWidget(self.auto_download_checkbox)
 
         btn_fetch_title = QPushButton("제목 가져오기")
         btn_fetch_title.clicked.connect(self.fetch_video_title)
@@ -176,6 +296,9 @@ class YoutubeDownloaderApp(QWidget):
 
     def fetch_video_title(self):
         """유튜브 URL에서 영상 제목 가져오기"""
+        # Lazy import
+        lazy_import_modules()
+
         url = self.url_edit.text().strip()
         if not url:
             QMessageBox.warning(self, "입력 오류", "유튜브 URL을 입력해주세요.")
@@ -382,6 +505,9 @@ class YoutubeDownloaderApp(QWidget):
 
     def add_to_queue(self):
         """다운로드 큐에 항목 추가"""
+        # Lazy import
+        lazy_import_modules()
+
         url = self.url_edit.text().strip()
         if not url:
             QMessageBox.warning(self, "입력 오류", "유튜브 URL을 입력해주세요.")
@@ -442,7 +568,50 @@ class YoutubeDownloaderApp(QWidget):
         self.url_edit.clear()
         self.filename_edit.clear()
 
-        QMessageBox.information(self, "추가 완료", "다운로드 큐에 추가되었습니다.")
+        # 메시지 박스 제거 - 그리드에 추가된 것으로 충분
+
+        # 자동 다운로드가 체크되어 있으면 자동으로 다운로드 시작
+        if self.auto_download_checkbox.isChecked():
+            self._start_download_for_row(row)
+
+    def _start_download_for_row(self, row: int):
+        """특정 행의 다운로드 시작 (자동 다운로드용)"""
+        # 이미 실행 중인지 확인
+        if row in self.workers:
+            return
+
+        # 다운로드 시작
+        url = self.table.item(row, 0).text()
+        save_dir = self.table.item(row, 1).text()
+        filename = self.table.item(row, 2).text()
+        format_text = self.table.item(row, 3).text()
+
+        # 형식 텍스트에서 다운로드 타입 추출
+        if "오디오" in format_text:
+            download_type = 'audio'
+        elif "최고 화질" in format_text:
+            download_type = 'video_best'
+        elif "720p" in format_text:
+            download_type = 'video_720p'
+        elif "480p" in format_text:
+            download_type = 'video_480p'
+        else:
+            download_type = 'audio'
+
+        # 출력 경로
+        output_path = os.path.join(save_dir, filename)
+
+        # 워커 생성 및 시작
+        worker = YoutubeDownloadWorker(url, output_path, download_type)
+        worker.progress.connect(lambda msg, r=row: self._update_progress(r, msg))
+        worker.title_resolved.connect(lambda title, r=row: self._update_title(r, title))
+        worker.file_path_resolved.connect(lambda path, r=row: self._update_file_path(r, path))
+        worker.finished.connect(lambda success, msg, r=row: self._on_finished(r, success, msg))
+
+        self.workers[row] = worker
+        worker.start()
+
+        self.table.item(row, 5).setText("시작 중...")
 
     def start_selected(self):
         """선택된 항목 다운로드 시작"""
@@ -458,43 +627,11 @@ class YoutubeDownloaderApp(QWidget):
             if row in self.workers:
                 continue
 
-            # 다운로드 시작
-            url = self.table.item(row, 0).text()
-            save_dir = self.table.item(row, 1).text()
-            filename = self.table.item(row, 2).text()
-            format_text = self.table.item(row, 3).text()
-
-            # 형식 텍스트에서 다운로드 타입 추출
-            if "오디오" in format_text:
-                download_type = 'audio'
-            elif "최고 화질" in format_text:
-                download_type = 'video_best'
-            elif "720p" in format_text:
-                download_type = 'video_720p'
-            elif "480p" in format_text:
-                download_type = 'video_480p'
-            else:
-                download_type = 'audio'
-
-            # 출력 경로
-            output_path = os.path.join(save_dir, filename)
-
-            # 워커 생성 및 시작
-            worker = YoutubeDownloadWorker(url, output_path, download_type)
-            worker.progress.connect(lambda msg, r=row: self._update_progress(r, msg))
-            worker.title_resolved.connect(lambda title, r=row: self._update_title(r, title))
-            worker.file_path_resolved.connect(lambda path, r=row: self._update_file_path(r, path))
-            worker.finished.connect(lambda success, msg, r=row: self._on_finished(r, success, msg))
-
-            self.workers[row] = worker
-            worker.start()
-
-            self.table.item(row, 5).setText("시작 중...")
+            self._start_download_for_row(row)
             started_count += 1
 
-        if started_count > 0:
-            QMessageBox.information(self, "다운로드 시작", f"{started_count}개 항목의 다운로드를 시작했습니다.")
-        else:
+        # 메시지 박스 제거 - 진행 상태로 충분
+        if started_count == 0:
             QMessageBox.warning(self, "이미 실행 중", "선택한 항목이 이미 다운로드 중입니다.")
 
     def _update_progress(self, row: int, message: str):
@@ -652,21 +789,144 @@ class YoutubeDownloaderApp(QWidget):
         event.accept()
 
 
+def create_splash_screen():
+    """스플래시 스크린 생성"""
+    # 스플래시 이미지 생성 (600x400)
+    splash_pix = QPixmap(600, 400)
+    splash_pix.fill(QColor(45, 45, 48))  # 어두운 배경
+
+    # 그리기
+    painter = QPainter(splash_pix)
+
+    # 제목
+    painter.setPen(QColor(255, 255, 255))
+    title_font = QFont("Arial", 28, QFont.Weight.Bold)
+    painter.setFont(title_font)
+    painter.drawText(splash_pix.rect(), Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignTop,
+                     "\n\nYouTube Downloader")
+
+    # 부제목
+    subtitle_font = QFont("Arial", 14)
+    painter.setFont(subtitle_font)
+    painter.setPen(QColor(200, 200, 200))
+    painter.drawText(splash_pix.rect(), Qt.AlignmentFlag.AlignCenter,
+                     "\n\n\n\n\n고음질 오디오 및 비디오 다운로더")
+
+    # 버전 정보
+    version_font = QFont("Arial", 10)
+    painter.setFont(version_font)
+    painter.setPen(QColor(150, 150, 150))
+    painter.drawText(splash_pix.rect(), Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom,
+                     "v1.0.0\n\n")
+
+    painter.end()
+
+    # 스플래시 스크린 생성
+    splash = QSplashScreen(splash_pix, Qt.WindowType.WindowStaysOnTopHint)
+    return splash
+
+
+def check_single_instance():
+    """앱이 이미 실행 중인지 확인"""
+    import fcntl
+
+    lock_file = os.path.expanduser('~/Library/Application Support/YoutubeDownloader/app.lock')
+    os.makedirs(os.path.dirname(lock_file), exist_ok=True)
+
+    try:
+        # 락 파일 열기
+        lock_fd = open(lock_file, 'w')
+        # 배타적 락 시도 (non-blocking)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        log_timing("Single instance check passed")
+        return True, lock_fd
+    except IOError:
+        log_timing("App is already running!")
+        return False, None
+
+
 def main():
-    # 의존성 확인 및 자동 설치
-    print("=" * 60)
-    print("Youtube Downloader 시작 중...")
-    print("=" * 60)
+    log_timing("===== APP START =====")
+    log_timing("Python runtime loaded")
 
-    checker = DependencyChecker()
-    if not checker.check_and_install():
-        print("\n경고: 일부 의존성 설치에 실패했습니다.")
-        print("앨범 아트 기능이 제대로 작동하지 않을 수 있습니다.")
-        print("수동으로 FFmpeg와 AtomicParsley를 설치해주세요.\n")
+    # 로그 설정
+    setup_logging()
+    log_timing("Logging system initialized")
 
+    # 중복 실행 체크
+    is_single, lock_fd = check_single_instance()
+    if not is_single:
+        log_timing("Exiting - another instance is running")
+        # 이미 실행 중인 경우 메시지 박스 표시하고 종료
+        app = QApplication(sys.argv)
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.warning(None, "이미 실행 중", "YouTube Downloader가 이미 실행 중입니다.")
+        sys.exit(0)
+
+    log_timing("Creating QApplication")
     app = QApplication(sys.argv)
-    window = YoutubeDownloaderApp()
-    window.show()
+    log_timing("QApplication created")
+
+    # 스플래시 스크린 표시
+    log_timing("Creating splash screen")
+    splash = create_splash_screen()
+    log_timing("Splash screen created")
+
+    log_timing("Showing splash screen")
+    splash.show()
+    log_timing("Splash screen shown")
+
+    app.processEvents()  # 스플래시 화면 즉시 표시
+    log_timing("Splash screen processed")
+
+    # 상태 메시지 표시 함수
+    def show_message(message):
+        log_timing(f"Status: {message}")
+        splash.showMessage(
+            message,
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
+            QColor(255, 255, 255)
+        )
+        app.processEvents()
+
+    # 초기화 시작 메시지
+    log_timing("Starting initialization")
+    show_message("초기화 중...")
+
+    # 메인 윈도우 생성 (아직 표시하지 않음)
+    window = None
+
+    def on_init_finished(success):
+        """초기화 완료 시 호출"""
+        nonlocal window
+        log_timing(f"Initialization finished (success={success})")
+
+        if not success:
+            show_message("경고: 일부 의존성 설치에 실패했습니다.")
+            app.processEvents()
+            time.sleep(1)
+
+        # 메인 윈도우 생성 및 표시
+        log_timing("Creating main window")
+        show_message("메인 화면 로딩 중...")
+        window = YoutubeDownloaderApp()
+        log_timing("Main window created")
+
+        # 스플래시 종료 및 메인 윈도우 표시
+        log_timing("Finishing splash and showing main window")
+        splash.finish(window)
+        window.show()
+        log_timing("Main window shown - Ready!")
+
+    # 백그라운드 초기화 워커 시작
+    log_timing("Starting background initialization worker")
+    init_worker = InitWorker()
+    init_worker.progress.connect(show_message)
+    init_worker.finished.connect(on_init_finished)
+    init_worker.start()
+    log_timing("Background worker started")
+
+    log_timing("Entering event loop")
     sys.exit(app.exec())
 
 
