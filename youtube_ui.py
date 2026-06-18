@@ -256,6 +256,12 @@ class YoutubeDownloaderApp(QWidget):
 
         main_layout.addWidget(self.table)
 
+        # ── 푸터 (저작자 표기) ──
+        footer = QLabel("Code By RedCode")
+        footer.setAlignment(Qt.AlignmentFlag.AlignRight)
+        footer.setStyleSheet("color: gray; font-size: 11px; padding: 2px 4px;")
+        main_layout.addWidget(footer)
+
         # 워커 관리
         self.workers: Dict[int, YoutubeDownloadWorker] = {}
 

@@ -71,5 +71,4 @@ bin/
 *.tmp
 
 # Commit messages
-CLAUDE.md
 COMMIT_MESSAGE.txt

@@ -2,6 +2,26 @@
 
 PyQt6 GUI 기반 크로스 플랫폼 YouTube 비디오/오디오 다운로더
 
+**Code By RedCode**
+
+---
+
+## 📥 다운로드 및 설치
+
+설치 과정이 필요 없습니다 — **다운로드 → 압축 해제 → 실행**만 하면 됩니다. FFmpeg와 AtomicParsley는 첫 실행 시 자동으로 내려받습니다.
+
+### ▶ [**⬇ 최신 버전 다운로드**](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest)
+
+| OS | 다운로드 |
+|----|----------|
+| 🪟 **Windows** | [YoutubeDownloader-windows.zip](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-windows.zip) |
+| 🍎 **macOS** (애플 실리콘) | [YoutubeDownloader-macos-arm64.zip](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-macos-arm64.zip) |
+| 🍎 **macOS** (인텔) | [YoutubeDownloader-macos-intel.zip](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-macos-intel.zip) |
+| 🐧 **Linux** (우분투) | [YoutubeDownloader-linux.tar.gz](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-linux.tar.gz) |
+
+- **macOS:** 서명되지 않은 앱이라 처음 실행 시 차단될 수 있습니다. 앱을 **우클릭 → "열기"** 를 선택하거나, 터미널에서 `xattr -cr YoutubeDownloader.app` 실행 후 여세요.
+- **Windows:** SmartScreen 경고가 뜨면 **"추가 정보" → "실행"** 을 누르세요.
+
 ---
 
 ## 1. 개요
@@ -531,6 +551,8 @@ python youtube_ui.py
 ---
 
 ## 크레딧
+
+**Code By RedCode**
 
 다음 기술로 제작:
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) - GUI 프레임워크

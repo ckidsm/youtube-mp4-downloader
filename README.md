@@ -2,6 +2,26 @@
 
 Cross-platform YouTube video/audio downloader with PyQt6 GUI
 
+**Code By RedCode**
+
+---
+
+## 📥 Download & Install
+
+No setup required — just **download, unzip, and run**. FFmpeg and AtomicParsley are downloaded automatically on first launch.
+
+### ▶ [**⬇ Download the latest version**](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest)
+
+| OS | Direct download |
+|----|-----------------|
+| 🪟 **Windows** | [YoutubeDownloader-windows.zip](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-windows.zip) |
+| 🍎 **macOS** (Apple Silicon) | [YoutubeDownloader-macos-arm64.zip](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-macos-arm64.zip) |
+| 🍎 **macOS** (Intel) | [YoutubeDownloader-macos-intel.zip](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-macos-intel.zip) |
+| 🐧 **Linux** (Ubuntu) | [YoutubeDownloader-linux.tar.gz](https://github.com/ckidsm/youtube-mp4-downloader/releases/latest/download/YoutubeDownloader-linux.tar.gz) |
+
+- **macOS:** The app is unsigned — on first launch, right-click the app → **Open**, or run `xattr -cr YoutubeDownloader.app` in Terminal.
+- **Windows:** If SmartScreen appears, click **More info → Run anyway**.
+
 ---
 
 ## 1. Overview
@@ -530,6 +550,8 @@ GUI application with download queue management, real-time progress display, and 
 ---
 
 ## Credits
+
+**Code By RedCode**
 
 Built with:
 - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) - GUI framework
