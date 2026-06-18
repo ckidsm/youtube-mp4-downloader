@@ -25,9 +25,6 @@ jobs:
           - os: macos-14
             label: macos-arm64
             asset: YoutubeDownloader-macos-arm64.zip
-          - os: macos-13
-            label: macos-intel
-            asset: YoutubeDownloader-macos-intel.zip
           - os: ubuntu-22.04
             label: linux
             asset: YoutubeDownloader-linux.tar.gz
@@ -159,7 +156,6 @@ jobs:
             |----|------|-----------|
             | Windows | `YoutubeDownloader-windows.zip` | 압축 해제 후 `YoutubeDownloader.exe` 실행 |
             | macOS (Apple Silicon) | `YoutubeDownloader-macos-arm64.zip` | 압축 해제 후 `YoutubeDownloader.app` 실행 |
-            | macOS (Intel) | `YoutubeDownloader-macos-intel.zip` | 압축 해제 후 `YoutubeDownloader.app` 실행 |
             | Linux (Ubuntu) | `YoutubeDownloader-linux.tar.gz` | `tar -xzf` 후 `./YoutubeDownloader` 실행 |
 
             > FFmpeg / AtomicParsley는 첫 실행 시 자동으로 다운로드됩니다.
